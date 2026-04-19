@@ -1,0 +1,61 @@
+name: Export Heatmap
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 minutes
+  workflow_dispatch:           # allow manual trigger from GitHub UI
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Fetch records from Make data store
+        env:
+          MAKE_API_TOKEN: ${{ secrets.MAKE_API_TOKEN }}
+        run: |
+          curl -s \
+            -H "Authorization: Token ${MAKE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://us2.make.com/api/v2/data-store-data?dataStoreId=92220&pg[limit]=100" \
+            > records.json
+
+          python3 - <<'EOF'
+          import json
+
+          with open('records.json') as f:
+              raw = json.load(f)
+
+          # Make API wraps results in {"dataStoreData": [...]}
+          items = raw.get('dataStoreData', raw) if isinstance(raw, dict) else raw
+
+          lines = []
+          for item in items:
+              key = item.get('key', '')
+              data = item.get('data', {})
+              # skip blank keys or non-heatmap keys
+              if not key or not (key.startswith('dayuser:') or key.startswith('user:')):
+                  continue
+              count = data.get('count', 0) or 0
+              first_post = data.get('firstPost', '') or ''
+              lines.append(f"{key},{count},{first_post}")
+
+          with open('heatmap.csv', 'w') as f:
+              f.write('\n'.join(lines))
+
+          print(f"Written {len(lines)} records to heatmap.csv")
+          EOF
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name  'heatmap-bot'
+          git config user.email 'bot@knowbody.online'
+          git add heatmap.csv
+          git diff --staged --quiet \
+            || git commit -m "heatmap: $(date -u +'%Y-%m-%dT%H:%M')Z" \
+            && git push
