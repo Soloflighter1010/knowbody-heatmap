@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Export data store to CSV
         env:
@@ -74,5 +76,9 @@ jobs:
           git config user.name  'heatmap-bot'
           git config user.email 'bot@knowbody.online'
           git add heatmap.csv
-          git diff --staged --quiet \
-            || (git commit -m "heatmap: $(date -u +'%Y-%m-%dT%H:%M')Z" && git push)
+          if ! git diff --staged --quiet; then
+            git commit -m "heatmap: $(date -u +'%Y-%m-%dT%H:%M')Z"
+            git push origin HEAD
+          else
+            echo "No changes to commit"
+          fi
